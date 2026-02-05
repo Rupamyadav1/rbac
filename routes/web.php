@@ -157,6 +157,10 @@ Route::middleware(['admin.auth'])->group(function () {
     Route::post('product/update/{id}', [ProductController::class, 'update'])->name('product.update');
     Route::delete('product/delete/{id}', [ProductController::class, 'destroy'])->name('product.destroy')->middleware('permission:delete products');
 
+    Route::post('/admin/product/upload-temp-image',
+    [ProductController::class, 'uploadTempImage']
+)->name('product.upload.temp');
+
     Route::get('/products/export/csv', [ProductController::class, 'exportCsv'])
         ->name('products.export.csv');
 

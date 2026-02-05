@@ -46,7 +46,7 @@ class UserController extends Controller
     {
         $orders = Order::with('orderItem')->get();
         $orderItems =  OrderItem::with('products', 'orders')->get();
-        dd($orderItems);
+       // dd($orderItems);
         return view('users.myorder', compact('orderItems'));
     }
 }

@@ -11,9 +11,8 @@
                 <table class="w-full mt-3 border border-collapse text-sm">
                     <thead class="bg-gray-100">
                         <tr>
-                            <th class="border px-2 py-1 text-left">Product</th>
+                            <th class="border px-2 py-1 text-left">Product name</th>
                             <th class="border px-2 py-1 text-right">Price</th>
-                            <th class="border px-2 py-1 text-right">Qty</th>
                             <th class="border px-2 py-1 text-right">Total</th>
                         </tr>
                     </thead>
@@ -22,7 +21,7 @@
                             <td class="border px-2 py-1">{{ $orderItem->products->title }}</td>
                             <td class="border px-2 py-1 text-right">{{ $orderItem->unit_price }}</td>
                             <td class="border px-2 py-1 text-right">
-                                ₹{{ ($orderItem->unit_price * $orderItem->quantity) }}
+                                ₹{{ ($orderItem->unit_price) }}
                             </td>
                         </tr>
                     </tbody>
@@ -30,7 +29,7 @@
 
                 <div class="text-right mt-3 font-bold">
                     Grand Total:
-                    ₹{{ ($orderItem->unit_price * $orderItem->quantity) }}
+                    ₹{{ ($orderItem->unit_price) }}
                 </div>
 
 

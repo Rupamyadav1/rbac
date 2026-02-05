@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
-use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use App\Models\ProductImage;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Support\Facades\DB;
+use Intervention\Image\Facades\Image;
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
@@ -50,28 +52,36 @@ class ProductController extends Controller
             'message' => 'Image deleted successfully'
         ]);
     }
-    public function uploadImage(Request $request)
+    public function uploadTempImage(Request $request)
     {
         $request->validate([
-            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
-            'product_id' => 'required'
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp',
         ]);
 
-        $image = $request->file('image');
-        $imageName = time() . '_' . Str::random(8) . '.' . $image->getClientOriginalExtension();
+        $file = $request->file('image');
 
-        $image->move(public_path('uploads/products'), $imageName);
+        $name = time() . '_' . Str::random(10) . '.webp';
+        $dir  = public_path('temp/products');
+        $path = $dir . '/' . $name;
 
-        $productImage = ProductImage::create([
-            'product_id' => $request->product_id,
-            'image' => $imageName
-        ]);
+        if (!file_exists($dir)) {
+            mkdir($dir, 0777, true);
+        }
+
+        Image::make($file)
+            ->resize(800, 800, function ($constraint) {
+                $constraint->aspectRatio();
+                $constraint->upsize();
+            })
+            ->encode('webp', 90)
+            ->save($path);
 
         return response()->json([
-            'id' => $productImage->id,
-            'imagePath' => asset('uploads/products/' . $imageName)
+            'name' => $name
         ]);
     }
+
+
     public function exportCsv(): StreamedResponse
     {
         $fileName = 'products_' . now()->format('Y_m_d_His') . '.csv';
@@ -137,27 +147,28 @@ class ProductController extends Controller
 
     public function create()
     {
-        $product = Product::create([
-            'title' => 'temp',
-            'slug' => 'temp-' . uniqid(),
-            'price'=>0,
-            'status' => 0
-        ]);
+
 
         $categories = Category::all();
 
-        return view('admin.product.create', compact('categories', 'product'));
+        return view('admin.product.create', compact('categories'));
     }
+
+
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'price' => 'required|numeric|min:1',
-
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'slug' => 'required|unique:products,slug',
+            'category_id' => 'required|exists:categories,id',
+            'price' => 'required|numeric|min:1', // ❌ 0 not allowed
+            'status' => 'required|boolean',
         ]);
-        $product = Product::findOrFail($request->product_id);
-        if ($validator->passes()) {
-            $product->update([
+
+        DB::transaction(function () use ($request) {
+
+            $product = Product::create([
                 'title' => $request->title,
                 'slug' => $request->slug,
                 'category_id' => $request->category_id,
@@ -165,13 +176,34 @@ class ProductController extends Controller
                 'short_description' => $request->short_description,
                 'description' => $request->description,
                 'is_featured' => $request->is_featured ?? 0,
-                'status' => $request->status
+                'status' => $request->status,
             ]);
-        }
 
+            if ($request->images) {
+                $images = explode(',', $request->images);
 
-        return redirect()->route('product.index')->with('success', 'Product saved');
+                foreach ($images as $img) {
+
+                    $from = public_path('temp/products/' . $img);
+                    $to   = public_path('uploads/products/' . $img);
+
+                    if (file_exists($from)) {
+                        rename($from, $to);
+
+                        ProductImage::create([
+                            'product_id' => $product->id,
+                            'image' => $img
+                        ]);
+                    }
+                }
+            }
+        });
+
+        return redirect()
+            ->route('product.index')
+            ->with('success', 'Product saved successfully');
     }
+
 
 
 
@@ -186,28 +218,55 @@ class ProductController extends Controller
     public function update(Request $request, $id)
     {
         $request->validate([
-            'title' => 'required',
-            'slug' => 'required',
-            // 'category_id' => 'required',
-            'price' => 'required',
-            'status' => 'required'
+            'title'       => 'required|string|max:255',
+            'slug'        => 'required|unique:products,slug,' . $id,
+            'category_id' => 'required|exists:categories,id',
+            'price'       => 'required|numeric|min:1', // ❌ 0 not allowed
+            'status'      => 'required|boolean',
         ]);
 
-        $product = Product::findOrFail($id);
+        DB::transaction(function () use ($request, $id) {
 
-        $product->update([
-            'title' => $request->title,
-            'slug' => $request->slug,
-            'category_id' => $request->category_id,
-            'price' => $request->price,
-            'short_description' => $request->short_description,
-            'description' => $request->description,
-            'is_featured' => $request->is_featured ?? 0,
-            'status' => $request->status
-        ]);
+            $product = Product::findOrFail($id);
 
-        return redirect()->route('product.index')->with('success', 'Product updated successfully');
+            // ✅ Update product
+            $product->update([
+                'title'             => $request->title,
+                'slug'              => $request->slug,
+                'category_id'       => $request->category_id,
+                'price'             => $request->price,
+                'short_description' => $request->short_description,
+                'description'       => $request->description,
+                'is_featured'       => $request->is_featured ?? 0,
+                'status'            => $request->status,
+            ]);
+
+            // ✅ New images (temp → uploads)
+            if ($request->images) {
+                $images = explode(',', $request->images);
+
+                foreach ($images as $img) {
+
+                    $from = public_path('temp/products/' . $img);
+                    $to   = public_path('uploads/products/' . $img);
+
+                    if (file_exists($from)) {
+                        rename($from, $to);
+
+                        ProductImage::create([
+                            'product_id' => $product->id,
+                            'image'      => $img,
+                        ]);
+                    }
+                }
+            }
+        });
+
+        return redirect()
+            ->route('product.index')
+            ->with('success', 'Product updated successfully');
     }
+
 
 
     public function destroy($id)
